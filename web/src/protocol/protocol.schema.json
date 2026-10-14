@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ghost-chat:protocol:v1",
+  "title": "Ghost Chat protocol version 1",
+  "description": "Authentication and lifecycle controls are unencrypted; nonempty chat text is only carried in ciphertext envelopes. Implementations additionally reject duplicate JSON properties, comments, trailing commas and nested values, and enforce canonical base64url, decoded byte limits and UTF-8 frame size.",
+  "oneOf": [
+    { "$ref": "#/$defs/auth" },
+    { "$ref": "#/$defs/destroy" },
+    { "$ref": "#/$defs/joined" },
+    { "$ref": "#/$defs/peer_ready" },
+    { "$ref": "#/$defs/room_destroyed" },
+    { "$ref": "#/$defs/error" },
+    { "$ref": "#/$defs/ciphertext" },
+    { "$ref": "#/$defs/room_created" }
+  ],
+  "$defs": {
+    "room_id": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 22,
+      "pattern": "^[A-Za-z0-9_-]{21}[AQgw]$"
+    },
+    "token": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "expiry": { "type": "string", "format": "date-time" },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind", "token"],
+      "properties": {
+        "v": { "const": 1 },
+        "kind": { "const": "auth" },
+        "token": { "$ref": "#/$defs/token" }
+      }
+    },
+    "destroy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind"],
+      "properties": { "v": { "const": 1 }, "kind": { "const": "destroy" } }
+    },
+    "joined": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind", "role", "roomId", "expiresAt"],
+      "properties": {
+        "v": { "const": 1 },
+        "kind": { "const": "joined" },
+        "role": { "enum": ["A", "B"] },
+        "roomId": { "$ref": "#/$defs/room_id" },
+        "expiresAt": { "$ref": "#/$defs/expiry" }
+      }
+    },
+    "peer_ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind"],
+      "properties": { "v": { "const": 1 }, "kind": { "const": "peer_ready" } }
+    },
+    "room_destroyed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind", "reason"],
+      "properties": {
+        "v": { "const": 1 },
+        "kind": { "const": "room_destroyed" },
+        "reason": {
+          "enum": [
+            "destroyed",
+            "disconnected",
+            "expired",
+            "protocol_error",
+            "slow_client"
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "kind", "code"],
+      "properties": {
+        "v": { "const": 1 },
+        "kind": { "const": "error" },
+        "code": {
+          "enum": [
+            "ROOM_NOT_FOUND_OR_EXPIRED",
+            "ROOM_FULL",
+            "AUTH_FAILED",
+            "RATE_LIMITED",
+            "PROTOCOL_ERROR"
+          ]
+        }
+      }
+    },
+    "ciphertext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v",
+        "kind",
+        "roomId",
+        "direction",
+        "seq",
+        "iv",
+        "ciphertext"
+      ],
+      "properties": {
+        "v": { "const": 1 },
+        "kind": { "const": "ciphertext" },
+        "roomId": { "$ref": "#/$defs/room_id" },
+        "direction": { "enum": ["A_TO_B", "B_TO_A"] },
+        "seq": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "iv": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 16,
+          "pattern": "^[A-Za-z0-9_-]{16}$"
+        },
+        "ciphertext": {
+          "type": "string",
+          "minLength": 23,
+          "maxLength": 2752,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "room_created": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roomId",
+        "creatorToken",
+        "inviteToken",
+        "expiresAt",
+        "idleTimeoutSeconds"
+      ],
+      "properties": {
+        "roomId": { "$ref": "#/$defs/room_id" },
+        "creatorToken": { "$ref": "#/$defs/token" },
+        "inviteToken": { "$ref": "#/$defs/token" },
+        "expiresAt": { "$ref": "#/$defs/expiry" },
+        "idleTimeoutSeconds": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
