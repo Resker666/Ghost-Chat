@@ -29,6 +29,9 @@ COPY --from=web-build /build/web/node_modules/react-dom/LICENSE /app/licenses/re
 COPY --from=web-build /build/web/node_modules/scheduler/LICENSE /app/licenses/scheduler.txt
 COPY --from=web-build /build/web/node_modules/lucide-react/LICENSE /app/licenses/lucide-react.txt
 COPY --from=web-build /build/web/node_modules/jsonc-parser/LICENSE.md /app/licenses/jsonc-parser.txt
+COPY --from=web-build /build/web/node_modules/qrcode/license /app/licenses/qrcode.txt
+COPY --from=web-build /build/web/node_modules/dijkstrajs/LICENSE.md /app/licenses/dijkstrajs.txt
+COPY --from=web-build /build/web/node_modules/vite/LICENSE.md /app/licenses/vite.txt
 ENV ADDR=0.0.0.0:8080 WEB_DIST_DIR=/app/web
 USER 65532:65532
 EXPOSE 8080

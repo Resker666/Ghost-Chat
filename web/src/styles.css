@@ -64,9 +64,14 @@ button {
   transition: background 0.15s;
 }
 .app-shell {
+  position: fixed;
+  top: var(--visual-viewport-top, 0px);
+  right: 0;
+  left: 0;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
-  min-height: 100dvh;
+  height: var(--visual-viewport-height, 100dvh);
+  overflow: hidden;
 }
 .sidebar {
   background: #181d1a;
@@ -74,8 +79,10 @@ button {
   padding: 30px 24px;
   display: flex;
   flex-direction: column;
-  position: fixed;
-  inset: 0 auto 0 0;
+  grid-column: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   width: 248px;
 }
 .brand {
@@ -146,11 +153,13 @@ button {
   margin-top: 18px;
 }
 .workspace {
+  container-type: size;
+  container-name: workspace;
   grid-column: 2;
   display: flex;
   flex-direction: column;
-  height: 100dvh;
-  min-height: 540px;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
 }
 .topbar {
@@ -227,11 +236,13 @@ button {
   justify-content: center;
   padding: 40px 28px;
   overflow-y: auto;
+  min-height: 0;
 }
 .state-content {
   width: 100%;
   max-width: 420px;
   text-align: center;
+  margin-block: auto;
 }
 .state-symbol {
   height: 66px;
@@ -315,6 +326,30 @@ button {
   font-size: 11px;
   margin-top: 10px;
   min-height: 16px;
+}
+.invitation-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 0;
+  text-align: center;
+}
+.invitation-qr canvas {
+  width: 224px;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  background: #fff;
+  image-rendering: pixelated;
+}
+.invitation-qr figcaption {
+  color: #aebbb2;
+  font-size: 11px;
+  line-height: 1.8;
+}
+.invitation-qr .risk-note {
+  margin-top: 0;
 }
 .workspace-footer {
   text-align: center;
@@ -453,7 +488,10 @@ button {
 }
 .modal-backdrop {
   position: fixed;
-  inset: 0;
+  top: var(--visual-viewport-top, 0px);
+  right: 0;
+  left: 0;
+  height: var(--visual-viewport-height, 100dvh);
   background: #000a;
   z-index: 10;
   display: flex;
@@ -464,7 +502,7 @@ button {
 .safety-dialog {
   width: 100%;
   max-width: 560px;
-  max-height: 90dvh;
+  max-height: min(90dvh, 100%);
   overflow-y: auto;
   background: #202922;
   border: 1px solid #435349;
@@ -529,7 +567,7 @@ button {
     display: none;
   }
   .workspace {
-    min-height: 420px;
+    min-height: 0;
   }
   .topbar {
     min-height: 103px;
@@ -575,7 +613,11 @@ button {
     max-width: 88%;
   }
   .composer {
-    padding: 14px 16px 8px;
+    padding: 14px 16px max(8px, env(safe-area-inset-bottom));
+  }
+  .compose-row textarea,
+  .invite-row input {
+    font-size: 16px;
   }
   .workspace-footer {
     padding: 10px 12px 13px;
@@ -589,5 +631,20 @@ button {
   }
   .modal-backdrop {
     padding: 16px;
+  }
+}
+@container workspace (max-height: 500px) {
+  .topbar {
+    min-height: 76px;
+    padding-block: 12px;
+  }
+  .conversation-label {
+    padding-block: 7px;
+  }
+  .composer {
+    padding-top: 8px;
+  }
+  .workspace-footer {
+    padding-block: 7px;
   }
 }

@@ -2,7 +2,13 @@
 
 无需账号、仅支持双人在线文字聊天的实验性端到端加密 Web 原型。浏览器本地加密，Go 服务仅在内存中管理房间和中继密文，不提供历史消息。
 
-P0/P1 可运行聊天与 P1.5 核心安全加固已完成，协议/密码单元测试、真实 Chrome E2E、本机 Go race 与漏洞扫描已通过。Docker 和生产 TLS 部署实测待 Linux 环境；完整命令、覆盖范围和当前结果见 [开发记录](docs/PROGRESS.md)。项目尚未经过独立安全审计。
+P0/P1 可运行聊天与 P1.5 核心安全加固已完成。提交 `5a63896` 的 [首次 Linux CI](https://github.com/Resker666/Ghost-Chat/actions/runs/38558565586) 四作业成功，包含 Docker 构建、Compose 配置与容器基础检查。
+
+2026-10-15 工作区的本机结果按范围单列：二维码前完整矩阵 115 passed / 5 个容器专用跳过、QR 后定向回归 25 passed、隐私修复后定向回归 25 passed，单元测试 86 passed。各组有重叠，不累加为新完整矩阵或远程 CI 通过。诊断隐私探针与容器结果判定自测也已完成，见 [开发记录](docs/PROGRESS.md)。项目尚未经过独立安全审计。
+
+实验服务：[chat.resker666.cloud](https://chat.resker666.cloud)。实际采用 Ubuntu 原生 Go + systemd + Nginx，正式 HTTPS/WSS 已完成五项目的聊天、安全头和本地 QR 定向验证（15 passed）。2026-10-15 用户反馈 Android 与 iPhone 的电脑↔手机核心流程“扫码或复制邀请→加入→互聊→销毁”均 PASS；这是用户实机反馈，不是代理独立观测，系统/浏览器版本、网络类型与实际扫码或复制分支未提供，专项仍待验收。
+
+当前证书与服务正常，但直连续期 dry-run 仍超时，长期自动续期可靠性未通过，应优先解决 ACME 出站连通性。临时通道下的配置/hook 验证已完成且通道已撤除，不能代替直连续期；容器 TLS 与真实手机专项继续单独记录，详情见部署记录。
 
 ## 安全边界
 
@@ -18,6 +24,11 @@ P0/P1 可运行聊天与 P1.5 核心安全加固已完成，协议/密码单元�
 ## 本地开发
 
 需要 Node.js 24、npm 11 和 Go 1.27.2（见 `server/go.mod`）。自动化端到端测试还需要 Playwright Chromium；可通过 `CHROME_PATH` 选择已安装的 Chrome。
+
+```powershell
+git clone https://github.com/Resker666/Ghost-Chat.git
+cd Ghost-Chat
+```
 
 以下各代码块均从仓库根目录开始执行，除非块内另行切换目录。仓库根目录包含 `web/`、`server/` 和 `e2e/`；依赖、构建产物及本机工具不随源码分发。
 
@@ -35,6 +46,8 @@ npm run dev -- --host 127.0.0.1
 ```
 
 打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，创建房间并把邀请链接在第二个浏览器 context 中打开。B 明确点击加入；双方在线后可以互聊。任一方刷新或离线都会结束整个会话。
+
+等待页可显式显示/隐藏本地邀请二维码。二维码包含完整入场凭证与加密秘密，不上传第三方；不要保存或公开截图。`localhost`/`127.0.0.1` 邀请不能让另一台手机访问，真实跨设备扫码需要可达且可信的 HTTPS 服务。
 
 构建后也可仅启动 Go，同源提供前端和中继：
 
@@ -76,11 +89,27 @@ go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 ```powershell
 cd e2e
 npm ci
+npm run typecheck
 npx playwright install chromium
 npm test
 ```
 
-先运行前端 build；E2E 自动编译并启动 Go 服务，在 `127.0.0.1:18080` 提供 `web/dist`，测试完成后停止自有服务。端口被占用时测试报错，不会复用或停止其他进程。若使用现有 Chrome，可省略浏览器下载，并在运行测试前设置 `$env:CHROME_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'`。Go 未在 PATH 时，测试入口也支持 `GO_BINARY` 指定其可执行文件。
+`npm test` 默认只跑 `chromium` 项目。先运行前端 build；未设置 `E2E_BASE_URL` 时，E2E 自动编译并启动 Go 服务，在 `127.0.0.1:18080` 提供 `web/dist`，测试完成后停止自有服务。端口被占用时测试报错，不会复用或停止其他进程。若使用现有 Chrome，可省略 Chromium 下载，并在运行测试前设置 `$env:CHROME_PATH = 'C:\Program Files\Google\Chrome\Application\chrome.exe'`；该变量只影响 Chromium 项目。Go 未在 PATH 时，原生测试入口也支持 `GO_BINARY` 指定其可执行文件。
+
+五项目矩阵包括 Chromium、Firefox、WebKit、模拟 Pixel 的 Chromium 和模拟 iPhone 的 WebKit；模拟配置不是真实手机测试。以下从仓库根目录开始，先确保前端已 build：
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path (Get-Location) '.tools/browsers'
+cd e2e
+npm ci
+npm run typecheck
+npx playwright install chromium firefox webkit
+npm run test:matrix
+```
+
+`PLAYWRIGHT_BROWSERS_PATH` 应在安装与运行时保持一致，上例将浏览器放入 Git 忽略的 `.tools/browsers`。Linux 缺系统依赖时使用 `npx playwright install --with-deps chromium firefox webkit`。矩阵运行结果、环境限制与真机状态分别记录，不能仅因配置存在就称已支持。
+
+外部测试 origin、隔离容器 HTTPS/WSS 入口及允许的执行范围见 [部署测试接口](docs/DEPLOYMENT.md#测试入口与目标范围)。不要把邀请链接作为 `E2E_BASE_URL`，也不要对正式服务运行短 TTL 或重启测试。
 
 从项目目录一键验证：
 
@@ -90,7 +119,7 @@ npm test
 
 Windows 完整检查中的 race 需要可用的兼容 C 编译器、`CGO_ENABLED=1` 和 `CC`。环境暂缺时可明确选择 `./scripts/verify.ps1 -SkipRace`，记录跳过，不能称完整通过；`-SkipE2E` 同理。Linux 使用 `bash scripts/verify.sh`，必要时先在 `e2e/` 运行 `npx playwright install --with-deps chromium` 安装浏览器系统依赖。
 
-CI 在 Linux 执行 Go race/vet/模块校验/漏洞扫描、前端检查/格式检查/依赖审计、真实 Chromium E2E 和容器 smoke；CI 工作流存在不表示远程作业已运行。详见 [测试计划](docs/TEST_PLAN.md)。
+CI 在 Linux 执行 Go race/vet/模块校验/漏洞扫描、前端检查/格式检查/依赖审计、真实 Chromium E2E 和容器 smoke。已确认的成功运行对应 `5a63896`；后续修改需要匹配其提交重新查看结果。验证范围见 [测试计划](docs/TEST_PLAN.md)，浏览器和真机状态见 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。
 
 ## 目录
 
@@ -100,13 +129,15 @@ CI 在 Linux 执行 Go race/vet/模块校验/漏洞扫描、前端检查/格式�
 | `server/` | Go 内存房间、一次性鉴权、WebSocket 密文中继 |
 | `docs/` | 架构、协议、威胁模型、ADR、验证记录 |
 | `e2e/` | 真实 Chromium 双 context 自动化测试 |
-| `deploy/` | P1.5 单实例容器和 HTTPS 反代示例 |
+| `deploy/` | 单实例容器与 HTTPS 反代示例；实际目标可使用原生 systemd 部署 |
 | `scripts/` | 与实际环境匹配的验证入口 |
 
 ## 自托管与贡献
 
-部署仅支持单实例、内存状态；服务进程重启使所有房间失效。已提供多阶段 Dockerfile、只读非 root Compose 与 HTTPS Nginx 示例。本机没有 Docker，尚未执行容器构建/运行或生产 TLS 验收。配置及补测命令见 [部署说明](docs/DEPLOYMENT.md)，贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+部署仅支持单实例、内存状态；服务进程重启使所有房间失效。当前实验目标使用本地交叉编译的 CGO 关闭程序与前端静态产物，由 systemd/Nginx 运行，目标机无需 Node、Go 编译器或 Docker。容器路线保留为独立选项，其基础运行已通过历史 CI，完整 TLS 容器测试与真实设备不由原生部署推断通过。配置与实际证据见 [部署说明](docs/DEPLOYMENT.md)，贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 采用 [MIT 许可证](LICENSE)。许可证和自动化测试都不等于安全审计。
 
 首次交付范围见 [CHANGELOG.md](CHANGELOG.md)，原始项目规划见 [规划归档](docs/planning/README.md)。当前实现与原文冲突时，以 [PRD](docs/PRD.md)、[协议](docs/PROTOCOL.md)、[威胁模型](docs/THREAT_MODEL.md) 和已确认的 [ADR](docs/decisions/) 为准。
+
+非安全问题使用仓库的公开 bug/feature 表单，只提交无敏感数据的步骤与现象；疑似安全问题先查看 [SECURITY.md](SECURITY.md)。维护与实验版发布流程见 [维护说明](docs/MAINTENANCE.md) 和 [发布清单](docs/RELEASE_CHECKLIST.md)。

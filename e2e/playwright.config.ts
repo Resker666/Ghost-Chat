@@ -1,4 +1,12 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test";
+import { baseURL, externalTarget } from "./playwright/support";
+
+// Playwright otherwise saves an accessibility snapshot on failure, including revealed invites.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
+
+const chromiumLaunch = process.env.CHROME_PATH
+  ? { executablePath: process.env.CHROME_PATH }
+  : {};
 
 export default defineConfig({
   testDir: "./playwright",
@@ -6,14 +14,32 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 7000 },
   reporter: "list",
-  globalSetup: "../scripts/e2e-server.mjs",
+  globalSetup: externalTarget ? undefined : "../scripts/e2e-server.mjs",
   use: {
-    baseURL: "http://127.0.0.1:18080",
+    baseURL,
+    ignoreHTTPSErrors: false,
     trace: "off",
     screenshot: "off",
     video: "off",
-    launchOptions: process.env.CHROME_PATH
-      ? { executablePath: process.env.CHROME_PATH }
-      : {},
   },
+  projects: [
+    {
+      name: "chromium",
+      use: { browserName: "chromium", launchOptions: chromiumLaunch },
+    },
+    { name: "firefox", use: { browserName: "firefox" } },
+    { name: "webkit", use: { browserName: "webkit" } },
+    {
+      name: "mobile-chromium",
+      use: {
+        ...devices["Pixel 5"],
+        browserName: "chromium",
+        launchOptions: chromiumLaunch,
+      },
+    },
+    {
+      name: "mobile-webkit",
+      use: { ...devices["iPhone 13"], browserName: "webkit" },
+    },
+  ],
 });
