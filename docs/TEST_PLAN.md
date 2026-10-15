@@ -51,14 +51,16 @@ TTL 单测注入时钟或使用缩短的测试配置，生产默认值仍明确�
 | Windows 原生 Go + Chrome | 2026-10-14 的 14 个 E2E 和本机试用已记录 |
 | Linux CI 原生 Go + Chromium | 提交 `5a63896` 的 run 38558565586 四作业成功，完整证据见开发记录 |
 | Linux 生产镜像基础运行 | 同一 CI 已通过 Docker build、Compose config、只读非 root health/static smoke |
-| 生产镜像完整聊天 | 待验证互聊、令牌/错误输入、销毁、断线、过期及重启；不得用基础 smoke 替代 |
+| 生产镜像实际会话/重启 | `fa3e721` run 38706441313 的完整容器步骤通过，含实际加密会话与隔离容器重启 |
 | Ubuntu 原生 systemd + Nginx 正式 HTTPS/WSS | 已实际通过正式域名五项目选定三例/项目，共 15；TLS/WSS、Unicode/销毁/无存储、安全头/CSP、QR；没有生产 TTL/重启/负载或真机结论 |
-| 容器 Nginx + HTTPS/WSS | 仍待实际执行完整 runner；原生正式域名成功不代替容器测试，测试 CA/忽略证书错误必须明确标注 |
+| 容器 Nginx + HTTPS/WSS | 同一实际 CI 已通过 Linux 生产镜像+Nginx+临时测试 CA；链/hostname、不可信/错误 hostname 负向、浏览器不忽略证书错误；不是原生正式域名或真机证明 |
 | 真实设备/不同网络 | 2026-10-15 用户反馈 Android/iPhone 的电脑↔手机核心流程 PASS；非代理独立观测，OS/浏览器/网络和扫码或复制分支未提供，专项未验收 |
 
 每份证据绑定具体提交、镜像、浏览器版本、日期与命令。后续提交不能仅引用旧提交通过来宣称自身已验收。[设备支持矩阵](DEVICE_SUPPORT.md) 记录待测与实际支持范围；[实验版清单](RELEASE_CHECKLIST.md) 约束发布表述。
 
 原生发布还绑定 archive SHA-256 与逐文件 manifest，许可证也在允许列表内；当前运行包总数 17 已含 manifest。服务 active、证书签发、定时器启用、续期 dry-run、reload hook 与浏览器测试分别记录；直连续期失败不能由临时出站通道签发成功抹去。
+
+当前验证基准为 `fa3e721` 的 [8 作业成功运行](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313)。前两轮失败、诊断过程和完整证据保留在开发记录。
 
 新增入口与边界依据 [ADR 0005](decisions/0005-mobile-and-browser-validation.md)：Chromium 默认入口和五项目矩阵分开；外部 origin 跳过原生进程重启；短 TTL 仅在专用测试实例明确启用；容器重启限于 runner 创建的随机项目。正式服务只跑指定基础用例，不修改其 TTL/limits。命令与变量见 [部署测试接口](DEPLOYMENT.md#测试入口与目标范围)。
 

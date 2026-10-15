@@ -38,6 +38,10 @@
 
 最新用户实机反馈（2026-10-15）：Android 和 iPhone 的电脑↔手机邀请传递→加入→互聊→销毁核心流程均 PASS。前述手机待测文字保留为收到反馈前的历史阶段；该反馈不是代理独立观察，OS/浏览器版本、网络类型、扫码或复制分支未提供，不能升级为指定浏览器、相机或后台/锁屏/换网/IME/横竖屏专项通过。
 
+当前验证基准为 `fa3e721` 的 [Verify run 38706441313](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313)：Go、web、五项目 E2E、container-build 共 8 作业成功。Linux 生产镜像 + Nginx 临时测试 CA 通过链/hostname、证书负向检查、实际会话和隔离重启验收；前两次连接失败与早期容器待测记录保留在开发记录。
+
+容器成功不解决正式服务 ACME 直连续期失败，不替代用户手机专项或管理员启用私密报告；这些仍单独保留限制。
+
 ## 模板维护
 
 模板位于 `.github/ISSUE_TEMPLATE/`，使用 GitHub issue forms 与 contact links。语法参考 [GitHub issue forms](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-issue-forms) 与 [模板选择器](https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/configuring-issue-templates-for-your-repository)。变更先检查 YAML/字段，再在进入默认分支后确认平台实际渲染，不为验证而发布含秘密的问题单。

@@ -319,9 +319,19 @@ npm run test:matrix -- --grep 'two isolated contexts exchange|production headers
 
 主代理随后推送单文件安全诊断提交 `cbcee956d7d6a77e5123390c0cbf4b2da2082169`。其 [Verify run 38705343238](https://github.com/Resker666/Ghost-Chat/actions/runs/38705343238) 第二轮已确认失败：[容器作业诊断](https://github.com/Resker666/Ghost-Chat/actions/runs/38705343238/job/116323258991) 显示 health `request_error` / `ECONNREFUSED`，HTTP status 为 null、TLS 为 false、protocol 为 null；应用与 Nginx 容器均 running、exit 0。连接尚未进入 TLS 握手，不将它写成已证实的证书或握手错误。
 
-[Moby 社区一手复现讨论](https://github.com/moby/moby/discussions/53256) 报告了仅连接 internal bridge 的容器可能接受发布配置却没有实际 host-port 映射的现象；这是本次排查参考，不替代实际 CI 的根因与修复验证。当前正调整隔离实验拓扑：应用只连接 internal relay、无发布端口；代理连接 relay 与独立普通 ingress bridge，仅向 host loopback 发布。并将核对实际 `NetworkSettings.Ports` 及网络拓扑/内部属性，不能只看 `HostConfig.PortBindings` 中的请求配置。
+[Moby 社区一手复现讨论](https://github.com/moby/moby/discussions/53256) 报告了仅连接 internal bridge 的容器可能接受发布配置却没有实际 host-port 映射的现象；这是排查参考，不单独作为本次已验证结论。第二轮之后调整隔离实验拓扑：应用只连接 internal relay、无发布端口；代理连接 relay 与独立普通 ingress bridge，仅向 host loopback 发布。新增实际 `NetworkSettings.Ports` 与网络拓扑/内部属性核对，不能只看 `HostConfig.PortBindings` 中的请求配置。
 
-该修复正在实现，尚待新的 CI 实际结果，**未标为解决或容器 TLS 通过**。其余本机、正式域名、手机反馈与续期限制保留原有历史记录。
+第二轮排查时该修复尚待 CI，没有提前标记解决；该失败与待验证阶段保留为历史，后续结果如下。其余本机、正式域名、手机反馈与续期限制不由容器结果改写。
+
+### 最终代码提交的 CI 成功证据
+
+代码提交 `fa3e72198eafd8a45462bbc2b37a18378418095a` 的 [Verify run 38706441313](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313) 已确认 **8 个作业全部 success**：Go、web、container-build 与五个 E2E 项目。
+
+[container-build 作业 116326913412](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313/job/116326913412) 成功，作业耗时 2 分 13 秒；`Production container conversation through verified HTTPS and WSS` 完整步骤成功，耗时 1 分 7 秒。GitHub 展开步骤日志当时加载失败，尚未取得精确 passed/skipped 计数，因此不填写容器用例数量。
+
+这次实际 Linux 生产镜像 + Nginx 临时测试 CA 验收已越过 readiness 与严格结果门槛：验证证书链/hostname、拒绝不可信签发者与错误 hostname，浏览器保持 `ignoreHTTPSErrors:false`；加密基础会话与隔离容器重启均实际通过。runner 只有在安全 summary 的 failed=0、passed>0、conversationPassed=true、containerRestartPassed=true 时才记录成功，全 skip/过滤关键用例不能过关。Compose 项目关闭与临时目录清理失败会使 job 失败；自建测试镜像删除为尽力执行，不扩称所有清理动作均受成功门槛保证。
+
+此前两轮容器 readiness/连接拒绝失败保留，网络契约修正后最终代码 CI 已成功。这里是 `fa3e721` 的代码验证证据，不因后续纯文档归档提交又触发 CI 而循环改写。它不等于正式域名证书自动续期可用，也不扩展 Android/iPhone 用户反馈的版本、网络、相机或专项范围；PVR 仍待管理员启用。
 
 ## 持续限制
 

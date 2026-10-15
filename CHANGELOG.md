@@ -95,8 +95,7 @@ versus copy branch was not specified.
 
 ### Remaining Validation
 
-- Full TLS chat through the production container remains pending. Physical-phone
-  core flows have user-reported PASS, while camera scanning, specific browser
+- Physical-phone core flows have user-reported PASS, while camera scanning, specific browser
   versions, background/lock, network switching, IME and orientation cases remain
   unconfirmed; native HTTPS automation does not cover those modes.
 - Direct-network certificate renewal dry-run failed with a staging ACME read
@@ -111,3 +110,16 @@ versus copy branch was not specified.
   SECURITY.md tracks the verified status.
 - No independent security audit, forward secrecy, anonymity or physical erasure
   guarantee is provided.
+
+### Final Code CI
+
+Commit `fa3e721` passed all 8 jobs in
+[Verify run 38706441313](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313):
+Go, web, five source E2E projects and container-build. The Linux production image
+and Nginx passed the full verified test-CA HTTPS/WSS step, including chain and
+hostname validation, certificate rejection checks, an actual encrypted conversation
+and isolated container restart enforced by the runner. Two earlier container
+failures remain documented in PROGRESS.md.
+
+This code validation does not make production ACME renewal reliable, expand
+physical-phone feedback or enable private vulnerability reporting.
