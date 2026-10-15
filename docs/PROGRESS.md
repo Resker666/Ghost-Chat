@@ -131,6 +131,119 @@ Race 首次 cgo 调用失败源于沙箱启动环境同时含大小写重复 `PA
 
 本次 `npm run format:check`、`bash -n scripts/verify.sh` 与 Git 忽略规则检查通过。业务与协议代码未变，本次没有重跑上文的完整业务测试，不将历史结果记为本次重新执行。初始提交内容与远程推送分开准备，远程推送由用户最终确认。
 
+## 2026-10-15 远程验证与维护
+
+### 已核实的远程证据
+
+主代理核实 [GitHub Verify run 38558565586](https://github.com/Resker666/Ghost-Chat/actions/runs/38558565586) 为 `completed / success`，对应提交 `v1-baseline`。以下不是本机缺 Docker 的推测，而是该次远程运行的实际结果：
+
+| 作业 | 实际范围 | 结果 |
+| --- | --- | --- |
+| `web` | 安装、lint、format、typecheck、单测、build、依赖审计 | PASS |
+| `go` | Linux race、vet、模块校验、漏洞扫描 | PASS |
+| `e2e` | Linux Chromium，原生 Go 服务，双 context 完整 E2E | PASS |
+| `container-build` | Docker 镜像构建、Compose config、只读非 root 容器 health/static smoke | PASS |
+
+基础容器运行已经验证，不再把 Docker/CI 整体列为未执行。完整生产镜像会话、Nginx/HTTPS、正式证书和真实设备/不同网络仍需独立证据；该次 CI 的原生 Go E2E 与容器 smoke 不合并冒称容器完整聊天通过。后续提交需匹配自身 CI 结果，不能沿用 `v1-baseline` 通过来声称新修改已验证。
+
+### 本轮维护产物
+
+本地新增无敏感材料收集字段的 bug/feature 表单及安全政策分流；新增设备支持矩阵、实验版发布清单、维护说明；README 补充独立 clone 入口。模板合入默认分支前，不声称远程创建 Issue 页面已生效。
+
+私密漏洞报告功能已获用户授权启用，由主代理处理平台设置；当前尚未收到成功证据，因此文档保持“未确认启用”，不冒称入口已可用。收到成功读回后再登记日期和准确 URL。
+
+本轮按部署验收 → 移动浏览器体验推进，开源维护并行。当前只记录已创建的文档与既有 CI 事实，未创建 release/tag，未以这些文档声称新的 HTTPS、容器完整聊天或真机测试已经通过。结果由负责代理提供后续补入。
+
+维护文件校验已实际完成：`web/` 下 `npx --no-install prettier --check ../.github/ISSUE_TEMPLATE/*.yml` 通过（包含 YAML 解析）；使用 Prettier Markdown AST 检查 23 份 Markdown 的本地文件链接，零失效路径；`git diff --check` 通过。GitHub 远程表单渲染、私密入口可达性及本轮业务/部署测试尚不计入这些检查。
+
+### 二维码加入前的运行接口与源码基线
+
+新增测试接口已与代码核对：默认 `e2e/npm test` 仅 Chromium，`test:matrix` 包含五项目，测试代码另有 `npm run typecheck`。`E2E_BASE_URL` 仅为无秘密/子路径的 loopback HTTP 或 HTTPS origin；外部模式跳过原生进程重启。短 TTL 只在专用实例通过 `E2E_SHORT_TTLS=1` 声明，容器重启仅由隔离 runner 通过项目/文件校验启用。正式服务不运行短 TTL 或重启用例，不改 TTL/limits。
+
+本轮实际验证对象为基于 `v1-baseline` 的当时未提交工作区，包含新的兼容性/测试修改，尚未加入本地二维码。下列结果不归属于未修改的 `v1-baseline`，不覆盖随后新增的二维码，也不表示新 workflow 已远程执行成功。
+
+| 检查 | 最终实际结果 |
+| --- | --- |
+| `web/npm test` | PASS，82 tests / 3 files |
+| web typecheck / lint / build / format | PASS |
+| `e2e/npm run typecheck` | PASS |
+| `e2e/npm run test:matrix` | 120 总数，115 PASS / 5.7 分钟，5 个预期 SKIP；每项目仅跳过一个隔离容器 restart 用例 |
+| 浏览器版本 | Chrome 155.0.8059.41（`chromium` 项目使用现有 Chrome）、Firefox 157、Playwright WebKit 27.2；另含 Pixel 5/Chromium 与 iPhone 13/WebKit 模拟 |
+| npm 审计 | PASS，0 漏洞 |
+| Node runner 语法/帮助、`bash -n`、`git diff --check` | PASS；这些不计为 Docker/TLS 执行结果 |
+| 外部 origin CLI `--list` 校验 | PASS，5 个解析场景：HTTPS 接受，远程 HTTP、credentials、hash、子路径拒绝；未发起网络测试 |
+| 视觉检查 | Chrome 桌面 1440×900、移动模拟 390×844、WebKit 移动模拟截图无重叠；不计为真机 |
+
+新 Chromium 回归先实际复现三项失败：安全对话框焦点循环、390×320 可见输入区、合成 IME Enter 的误发送，修复后五项目完整矩阵通过。合成 IME 事件不能替代真实中文输入法验收。旧复制错误清理和短桌面对话框新增案例同样在五项目通过。
+
+WebKit 还复现 early-effect fragment 清理竞态，运行时与驱动侧检查均为未清理；将无状态监听移到 main bootstrap 后回归通过。Firefox 旧布局断言未等待 rAF/后台页更新，调整为 `bringToFront` 和 `expect.poll`，保持同样严格边界后通过；这是测试时序修正，不是放宽容差或回避布局缺陷。
+
+Firefox 在沙箱内创建页面崩溃，普通用户模式完整矩阵通过，不能据此把应用标为 Firefox 不兼容。真实 iOS/Android 输入法、手机、不同网络与正式域名证书仍无验收证据。
+
+容器入口已准备临时测试 CA、独立 HOME/NSS、链与 hostname 验证及不可信证书负向检查，保持 `ignoreHTTPSErrors:false`；本轮 TLS stack 只有静态审查，当前本机仍无 Docker，尚无本轮容器 HTTPS 完整聊天通过结果。部署主机/域名与真实设备信息仍待用户补充。
+
+私密报告功能仍为 disabled，当前管理员身份未接通，没有修改或宣称启用该设置。公开表单继续只引导安全政策，不使用尚不可用的私密新建链接。未创建 release/tag、未将新工作区归为远程已验证版本。
+
+### 外部 loopback 目标验证
+
+主代理使用已运行的 `http://127.0.0.1:8080` 预览，在 `e2e/` 设置 `E2E_BASE_URL=http://127.0.0.1:8080` 后实际运行：
+
+```text
+npm test -- --grep 'two isolated contexts' --output ../.tools/external-e2e-results
+```
+
+结果：1 PASS / 2.3 秒。外部模式没有启动默认 18080 测试服务，没有重启或停止目标；只执行基本双 context 互聊流程。这是本机 loopback HTTP 验证，不是 HTTPS、容器 TLS、真实手机或跨网络结果。
+
+### 本地邀请二维码与定向回归
+
+移动方向已加入显式显示/隐藏的本地 canvas 邀请二维码，依据 [ADR 0006](decisions/0006-local-invitation-qr.md)。邀请包含 roomSecret 和一次性 token，不调用远程二维码服务，不持久化图片。绘制与清空/晚到异步结果由独立回归验证。
+
+已安装并核对 qrcode 1.5.4 / MIT、浏览器传递依赖 dijkstrajs 1.0.3 / MIT、@types/qrcode 1.5.6 / 开发类型，以及 E2E 独立解码 jsqr 1.4.0 / Apache-2.0。用途、风险与许可见 [DEPENDENCIES.md](DEPENDENCIES.md)。Dockerfile 已新增 qrcode/dijkstrajs 原始许可证 COPY；这是源码静态确认，本轮新镜像尚未构建，不沿用旧镜像 CI 作为新依赖已构建的证明。
+
+主代理反馈本轮 QR 后实际结果如下，仍属于基于 `v1-baseline` 的未提交工作区：
+
+| 验证 | 实际结果与范围 |
+| --- | --- |
+| web 单元测试 | PASS，86 tests / 4 files |
+| 最终 web lint / format:check | PASS |
+| web 与 e2e npm audit | PASS，0 漏洞 |
+| 五项目 QR 后定向 E2E | PASS，25 tests / 47.8 秒；`chromium`、`firefox`、`webkit`、`mobile-chromium`、`mobile-webkit` 每项目 4 个 QR 用例 + 1 个双人基本聊天用例 |
+| 定向输出 | `.tools/qr-e2e-results`，被 Git 忽略；不提交可见 QR、解码内容或真实会话材料 |
+
+四个 QR 用例覆盖：默认隐藏/显式展示并用独立 jsQR 解码实际 canvas 后仅在内存比较完整邀请、请求保持同源且不含 roomSecret/fragment；隐藏和主动销毁后退休 canvas 宽高归零；对方成功入场后移除并清空 QR；模块延迟加载在销毁后不能重绘旧邀请。既有双人互聊用例在每个项目同时重跑。
+
+上述 115 PASS / 5 SKIP 是 QR 前完整矩阵，新增 25 PASS 是 QR 后定向回归，两者有基本聊天用例重叠，不相加冒称新的完整矩阵通过。独立像素解码与设备模拟不等于真实手机相机扫码或输入法验收。
+
+本轮文档到此冻结：保留最新结果、此前失败与修复证据和运行接口；未创建 release/tag、提交或推送。Linux 容器 TLS 完整会话、正式域名/不同网络、真实手机，以及管理员启用私密漏洞报告仍等待实际目标或操作证据，不能由本机回归或历史 CI 推断完成。
+
+本机 `http://127.0.0.1:8080` 预览健康检查已由主代理再次确认；这是当前开发机可用性记录，不提供跨设备可达性或新远程部署承诺。私密报告管理员操作仍未完成；最新 API 复查因 TLS 认证失败未得到有效状态，不以该失败推断平台设置发生变化，也未操作平台设置。
+
+### 失败诊断隐私与严格 runner 最终验证
+
+二维码后又修正测试失败路径：禁用 Playwright 自动页面快照，敏感 locator/解码断言使用布尔结论，重启用例通过 `openInvite` 导航以免 call log 打印完整邀请。`error-context.md` 可以保留固定诊断/源码，不声称完全禁止错误文件。
+
+实际正向定向命令为：
+
+```text
+npm run test:matrix -- --grep 'clipboard rejection|local invitation QR|actual server process restart|two isolated contexts' --output '../.tools/privacy-regression-results'
+```
+
+结果 **25 PASS / 42.8 秒**。每项目 5 个用例：基本双人聊天、复制失败后显式显示、结束后清理旧复制错误、QR 像素解码、原生进程重启。五项目仍为 Chromium、Firefox、WebKit 与两个移动模拟。此结果与 QR 后 25 PASS / 47.8 秒及 QR 前完整矩阵分别记录，不能累计或冒称新完整矩阵已重跑。
+
+下列负向/基础设施验证由主代理与后端代理实际执行并反馈，**不加到正向业务通过数，不等于真实 TLS 容器运行**：
+
+| 检查 | 结果与边界 |
+| --- | --- |
+| 真实 Playwright 故意失败探针 | PASS；确实填入随机测试 marker 后抛出固定 `CONTROLLED_PRIVACY_PROBE_FAILURE`，得到 1 failed / exit 1，再由父进程扫描全部 stdout/stderr 与结果文件 |
+| 探针敏感内容检查 | PASS；无该 marker、无 `# Page snapshot`、无 png/zip/webm；允许 `error-context.md` 中的固定错误与源码；不使用早期仅 `expect(false)` 的探针作为最终证据 |
+| 真实安全 reporter 集成探针 | PASS；同样执行到 marker 已显示后的固定失败，summary 恰为 `{passed:0,skipped:0,failed:1,conversationPassed:false,containerRestartPassed:false}`，输出与错误文件无 marker/快照/媒体 |
+| 容器 runner CLI 门槛 | PASS；11 组非法输入被拒，3 组帮助入口按预期；不允许 `--reporter` 绕过或将仅列用例作为验收成功 |
+| reporter 结果与 schema 自测 | PASS；12 组合成事件按预期判定，2 组非法 schema 被拒；没有把合成事件标为真实会话 |
+| stdout/stderr 分流与边界 | PASS；两者各 65,537 bytes 的输出被拒；合法 Docker JSON 与 Linux 结果配合 stderr warning 可正确处理，不混入 JSON |
+| runner/reporter 语法、格式、差异检查 | PASS；真实 Linux Docker/TLS 栈仍未执行 |
+
+runner 完整验收要求基础会话和隔离容器重启都实际通过；全 skip、过滤关键用例或仅退出 0 不能构成验收。这里只验证了实现契约及负向处理，仍需在实际 Linux 容器目标运行。最终本机文档结果冻结；未执行 release/tag/commit/push，等待部署主机/域名、真实设备和私密报告管理员的实际后续操作。
+
 ## 持续限制
 
 尚未经过独立审计；无前向保密、无真实身份认证、无物理擦除和防截图保证；公网服务器可观察 IP 与元数据，恶意 Web 发布者可替换客户端代码。

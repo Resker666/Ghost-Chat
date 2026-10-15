@@ -3,10 +3,15 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { externalTarget, openInvite } from "./support";
 
 test("an actual server process restart clears views and invalidates old invitations", async ({
   browser,
 }) => {
+  test.skip(
+    externalTarget,
+    "Native restart is only performed on a locally owned test process",
+  );
   const root = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
@@ -76,7 +81,7 @@ test("an actual server process restart clears views and invalidates old invitati
       a.getByRole("heading", { name: "等待对方加入" }),
     ).toBeVisible();
     const invite = await a.getByLabel("邀请链接", { exact: true }).inputValue();
-    await b.goto(invite);
+    await openInvite(b, invite, base);
     await b.getByRole("button", { name: "加入会话", exact: true }).click();
     await expect(a.getByRole("log")).toBeVisible();
     await a
@@ -91,7 +96,7 @@ test("an actual server process restart clears views and invalidates old invitati
     expect(await b.locator(".message-text").count()).toBe(0);
     stop = await launch();
     const reentry = await bContext.newPage();
-    await reentry.goto(invite);
+    await openInvite(reentry, invite, base);
     await reentry
       .getByRole("button", { name: "加入会话", exact: true })
       .click();

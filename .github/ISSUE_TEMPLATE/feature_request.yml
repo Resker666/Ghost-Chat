@@ -1,0 +1,44 @@
+name: 功能与维护建议
+description: 说明使用场景和期望行为，不提交真实会话或安全漏洞细节。
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        此表单公开可见。只写一般使用场景，不提交完整 URL、roomId、聊天正文、token、roomSecret、原始日志、抓包、邀请二维码/解码文本或真实会话截图。
+        安全漏洞请按 [安全政策](https://github.com/Resker666/Ghost-Chat/security/policy) 私密报告；此表单不代表私密报告功能已启用。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 范围与隐私确认
+      options:
+        - label: 我没有提交真实会话、敏感材料或疑似安全漏洞细节。
+          required: true
+        - label: 我理解断线重连、历史、文件和群聊需要产品决策，不属于已承诺的首版能力。
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 建议方向
+      options:
+        - 既有双人文字流程
+        - 移动或浏览器兼容
+        - 测试或部署
+        - 文档或开源维护
+        - 产品边界变更
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 一般使用场景
+      description: 描述要完成的任务，不填写真实聊天或个人资料。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望行为与完成标准
+      description: 说明可观察的结果；涉及现有安全/删除语义时明确指出需要讨论的变化。
+    validations:
+      required: true

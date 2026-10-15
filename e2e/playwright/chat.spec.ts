@@ -1,74 +1,19 @@
+import { test, expect } from "@playwright/test";
 import {
-  test,
-  expect,
-  type Browser,
-  type Page,
-  type BrowserContext,
-} from "@playwright/test";
-
-async function creator(browser: Browser) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto("/");
-  await page.getByRole("button", { name: "创建一次性房间" }).click();
-  await expect(
-    page.getByRole("heading", { name: "等待对方加入" }),
-  ).toBeVisible();
-  const invite = await page
-    .getByLabel("邀请链接", { exact: true })
-    .inputValue();
-  return { context, page, invite };
-}
-
-async function receiver(browser: Browser, invite: string) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto(invite);
-  await expect(page.getByRole("heading", { name: "加入会话" })).toBeVisible();
-  expect(new URL(page.url()).hash === "").toBe(true);
-  return { context, page };
-}
-
-async function pair(browser: Browser) {
-  const a = await creator(browser);
-  const b = await receiver(browser, a.invite);
-  await b.page.getByRole("button", { name: "加入会话", exact: true }).click();
-  await expect(a.page.getByRole("log")).toBeVisible();
-  await expect(b.page.getByRole("log")).toBeVisible();
-  return { a, b };
-}
-
-async function send(page: Page, text: string) {
-  await page.getByRole("textbox", { name: "消息", exact: true }).fill(text);
-  await page.getByRole("button", { name: "发送消息" }).click();
-}
-
-async function storageIsEmpty(context: BrowserContext, page: Page) {
-  expect((await context.cookies()).length).toBe(0);
-  expect(
-    await page.evaluate(
-      async () =>
-        localStorage.length === 0 &&
-        sessionStorage.length === 0 &&
-        (await indexedDB.databases()).length === 0 &&
-        (await caches.keys()).length === 0 &&
-        (await navigator.serviceWorker.getRegistrations()).length === 0,
-    ),
-  ).toBe(true);
-}
+  baseURL,
+  creator,
+  pair,
+  receiver,
+  send,
+  shortTTLs,
+  storageIsEmpty,
+} from "./support";
 
 test("two isolated contexts exchange encrypted Unicode text and destroy irreversibly", async ({
   browser,
 }) => {
   const a = await creator(browser);
-  const requests: string[] = [];
-  a.page.on("request", (request) =>
-    requests.push(`${request.url()} ${request.postData() || ""}`),
-  );
   const b = await receiver(browser, a.invite);
-  b.page.on("request", (request) =>
-    requests.push(`${request.url()} ${request.postData() || ""}`),
-  );
   // A is already connected; observe its actual browser WebSocket sends without changing payloads.
   await a.page.evaluate(() => {
     const original = WebSocket.prototype.send;
@@ -103,12 +48,24 @@ test("two isolated contexts exchange encrypted Unicode text and destroy irrevers
     ),
   ).toBe(true);
   expect(
-    requests.every(
+    [...a.requests, ...b.requests].every(
       (raw) =>
         !raw.includes(secret) &&
         !raw.includes(text) &&
-        new URL(raw.split(" ")[0]).origin === "http://127.0.0.1:18080",
+        new URL(raw.split(" ")[0]).origin === baseURL,
     ),
+  ).toBe(true);
+  expect([...a.sockets, ...b.sockets].length >= 2).toBe(true);
+  expect(
+    [...a.sockets, ...b.sockets].every((raw) => {
+      const socket = new URL(raw);
+      return (
+        socket.protocol === (baseURL.startsWith("https:") ? "wss:" : "ws:") &&
+        socket.host === new URL(baseURL).host &&
+        !socket.search &&
+        !socket.hash
+      );
+    }),
   ).toBe(true);
   await storageIsEmpty(a.context, a.page);
   await storageIsEmpty(b.context, b.page);
@@ -253,6 +210,10 @@ test("UTF-8 byte limit accepts 2048 and blocks 2049", async ({ browser }) => {
 });
 
 test("waiting room expires and clears the invitation", async ({ browser }) => {
+  test.skip(
+    !shortTTLs,
+    "Requires a dedicated instance configured with short test TTLs",
+  );
   const a = await creator(browser);
   await expect(a.page.getByRole("heading", { name: "房间已过期" })).toBeVisible(
     { timeout: 15_000 },
@@ -301,6 +262,10 @@ test("a create request cancelled by offline can start a fresh room", async ({
 test("active rooms expire at the absolute TTL and clear both views", async ({
   browser,
 }) => {
+  test.skip(
+    !shortTTLs,
+    "Requires a dedicated instance configured with short test TTLs",
+  );
   const { a, b } = await pair(browser);
   await send(a.page, "absolute expiry fixture");
   await expect(b.page.locator(".message-text")).toHaveText([
@@ -361,7 +326,12 @@ test("same-document navigation also removes a sensitive fragment", async ({
   await page.evaluate(() => {
     window.location.hash = "s=discard-this&t=discard-this";
   });
-  await expect.poll(() => new URL(page.url()).hash).toBe("");
+  await expect
+    .poll(async () => ({
+      runtimeClear: await page.evaluate(() => window.location.hash === ""),
+      driverClear: new URL(page.url()).hash === "",
+    }))
+    .toEqual({ runtimeClear: true, driverClear: true });
   await expect(
     page.getByRole("button", { name: "创建一次性房间" }),
   ).toBeVisible();
@@ -369,30 +339,36 @@ test("same-document navigation also removes a sensitive fragment", async ({
 
 test("desktop and mobile layouts remain within the viewport", async ({
   browser,
-}) => {
+}, testInfo) => {
   const { a, b } = await pair(browser);
   await send(a.page, "这是一条测试消息，Hello Ghost Chat.");
   await send(b.page, "收到，会话结束后内容清空。");
+  await a.page.bringToFront();
   for (const [name, width, height] of [
     ["desktop", 1440, 900],
     ["mobile", 390, 844],
     ["narrow", 320, 568],
   ] as const) {
     await a.page.setViewportSize({ width, height });
-    expect(
-      await a.page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    const input = await a.page
-      .getByRole("textbox", { name: "消息", exact: true })
-      .boundingBox();
-    expect(!!input && input.y >= 0 && input.y + input.height <= height).toBe(
-      true,
-    );
+    await expect
+      .poll(
+        async () =>
+          await a.page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () => {
+        const input = await a.page
+          .getByRole("textbox", { name: "消息", exact: true })
+          .boundingBox();
+        return !!input && input.y >= 0 && input.y + input.height <= height;
+      })
+      .toBe(true);
     if (name !== "narrow")
       await a.page.screenshot({
-        path: `test-results/${name}.png`,
+        path: testInfo.outputPath(`${name}.png`),
         fullPage: true,
       });
   }

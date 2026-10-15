@@ -1,0 +1,71 @@
+services:
+  ghost-chat:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: runtime
+    image: "${CONTAINER_E2E_APP_IMAGE:?Use scripts/container-e2e.mjs}"
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ADDR: 0.0.0.0:8080
+      WEB_DIST_DIR: /app/web
+      ALLOWED_ORIGINS: "${CONTAINER_E2E_ORIGIN:?Use scripts/container-e2e.mjs}"
+      ROOM_TTL: 30s
+      WAITING_TTL: 10s
+      AUTH_TIMEOUT: 5s
+      WRITE_TIMEOUT: 5s
+      HEARTBEAT_INTERVAL: 2s
+      HEARTBEAT_TIMEOUT: 2s
+      MAX_ROOMS: "100"
+      MAX_CONNECTIONS: "210"
+      CREATE_RATE_PER_MINUTE: "1000"
+      UPGRADE_RATE_PER_MINUTE: "2000"
+      MESSAGE_RATE_PER_SECOND: "20"
+    mem_limit: 256m
+    cpus: "1.0"
+    pids_limit: 128
+    stop_grace_period: 5s
+    ulimits:
+      core: { soft: 0, hard: 0 }
+    logging: { driver: none }
+    networks: [relay]
+
+  nginx:
+    image: "${CONTAINER_NGINX_IMAGE:-nginxinc/nginx-unprivileged:1.30.6-alpine-slim}"
+    entrypoint: [nginx]
+    command: ["-c", "/etc/nginx/ghost-chat-e2e.conf", "-g", "daemon off;"]
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [ghost-chat]
+    ports:
+      - "127.0.0.1:${CONTAINER_HTTPS_PORT:-18443}:8443"
+    volumes:
+      - type: bind
+        source: ./nginx.e2e.conf
+        target: /etc/nginx/ghost-chat-e2e.conf
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: "${CONTAINER_E2E_CERT_DIR:?Use scripts/container-e2e.mjs}"
+        target: /etc/ghost-chat-test-tls
+        read_only: true
+        bind: { create_host_path: false }
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=101,gid=101,mode=0700
+    mem_limit: 64m
+    cpus: "0.5"
+    pids_limit: 32
+    stop_grace_period: 5s
+    ulimits:
+      core: { soft: 0, hard: 0 }
+    logging: { driver: none }
+    networks: [relay]
+
+networks:
+  relay:
+    internal: true

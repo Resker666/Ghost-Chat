@@ -1,0 +1,63 @@
+name: 普通问题报告
+description: 提交不含安全漏洞细节或会话材料的使用问题。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        此表单公开可见，仅用于非安全问题。疑似泄密、鉴权绕过、未授权加入或加密问题请先查看 [安全政策](https://github.com/Resker666/Ghost-Chat/security/policy)，按其已确认渠道私密报告。
+        不要填写完整 URL、roomId、聊天正文、token、roomSecret、原始日志、抓包、邀请二维码/解码文本、设备唯一标识或真实会话截图。表单不能自动脱敏。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 公开提交确认
+      options:
+        - label: 我确认这不是疑似安全漏洞，且没有提交真实会话或敏感材料。
+          required: true
+        - label: 我已查看现有问题与文档，以下只描述无敏感数据的步骤和界面状态。
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交短哈希
+      description: 填写短哈希或实验版名，不填写仓库/会话网址。
+      placeholder: Unreleased / 提交短哈希
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 系统与浏览器版本
+      description: 只写通用系统/浏览器版本；不写 IP、域名、序列号或个人路径。
+      placeholder: 操作系统版本，浏览器及版本
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 运行模式
+      options:
+        - 本机开发或原生 Go
+        - Docker 容器
+        - HTTPS 反代
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 无敏感数据的复现步骤
+      description: 使用步骤名称或测试占位说明；不粘贴消息、邀请、地址、日志或抓包。
+      placeholder: |
+        1. 创建测试房间
+        2. 对方加入
+        3. 描述操作与看到的界面状态
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际界面行为
+      description: 只描述状态、按钮或固定错误码，不填写聊天正文或原始输出。
+    validations:
+      required: true

@@ -33,6 +33,7 @@ if (-not $SkipE2E) {
     Push-Location (Join-Path $projectRoot 'e2e')
     try {
         npm ci; Check-Exit
+        npm run typecheck; Check-Exit
         if (-not $env:CHROME_PATH) {
             $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $projectRoot '.tools/browsers'
             npx playwright install chromium; Check-Exit

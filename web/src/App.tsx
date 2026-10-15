@@ -4,24 +4,29 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type MouseEvent,
 } from "react";
 import {
   ArrowLeft,
   ArrowUp,
   Check,
   Copy,
+  Eye,
   Info,
   Link,
   LoaderCircle,
   LockKeyhole,
   MessagesSquare,
   Plus,
+  QrCode,
   ShieldCheck,
   Trash2,
   WifiOff,
   X,
 } from "lucide-react";
 import { CryptoSession } from "./crypto";
+import { InvitationQR } from "./components/InvitationQR";
+import { useVisualViewport } from "./hooks/useVisualViewport";
 import {
   buildInviteUrl,
   MAX_PLAINTEXT_BYTES,
@@ -72,6 +77,7 @@ const endLabels: Record<EndReason, string> = {
 };
 
 export default function App({ boot }: { boot: Boot }) {
+  useVisualViewport();
   const [stage, setStage] = useState<Stage>(
     boot.kind === "home" ? "home" : boot.kind === "join" ? "join" : "ended",
   );
@@ -86,6 +92,9 @@ export default function App({ boot }: { boot: Boot }) {
   const [reason, setReason] = useState("邀请已失效，或会话材料已从本页移除");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [manualInvite, setManualInvite] = useState(false);
+  const [qrVisible, setQRVisible] = useState(false);
   const [sending, setSending] = useState(false);
   const [safety, setSafety] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -96,8 +105,11 @@ export default function App({ boot }: { boot: Boot }) {
   const activeSecret = useRef<Uint8Array | null>(null);
   const messageId = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
+  const inviteInput = useRef<HTMLInputElement>(null);
+  const inviteVersion = useRef(0);
+  const composing = useRef(false);
   const safetyClose = useRef<HTMLButtonElement>(null);
-  const infoButton = useRef<HTMLButtonElement>(null);
+  const safetyOpener = useRef<HTMLButtonElement>(null);
   const byteCount = new TextEncoder().encode(draft).byteLength;
   const supported = window.isSecureContext && !!window.crypto?.subtle;
   const seconds = expiresAt
@@ -111,10 +123,20 @@ export default function App({ boot }: { boot: Boot }) {
     pendingRef.current = null;
     setPending(null);
   };
+  const clearInvite = () => {
+    inviteVersion.current++;
+    setInvite("");
+    setCopied(false);
+    setCopyFailed(false);
+    setManualInvite(false);
+    setQRVisible(false);
+    setError("");
+  };
   const ended = (value: EndReason) => {
     setMessages([]);
     setDraft("");
-    setInvite("");
+    composing.current = false;
+    clearInvite();
     setExpiresAt(null);
     setSending(false);
     setReason(endLabels[value]);
@@ -140,9 +162,10 @@ export default function App({ boot }: { boot: Boot }) {
       if (pendingRef.current) pendingRef.current.inviteToken = "";
       pendingRef.current = null;
       setPending(null);
-      setInvite("");
+      clearInvite();
       setMessages([]);
       setDraft("");
+      composing.current = false;
       setExpiresAt(null);
       setStage((current) => (current === "home" ? current : "ended"));
     };
@@ -151,16 +174,12 @@ export default function App({ boot }: { boot: Boot }) {
     const resume = (event: PageTransitionEvent) => {
       if (event.persisted) terminate();
     };
-    const clearFragment = () =>
-      window.history.replaceState(null, "", window.location.pathname);
     window.addEventListener("pageshow", resume);
-    window.addEventListener("hashchange", clearFragment);
     return () => {
       clearInterval(timer);
       window.removeEventListener("pagehide", terminate);
       window.removeEventListener("offline", terminate);
       window.removeEventListener("pageshow", resume);
-      window.removeEventListener("hashchange", clearFragment);
       terminate();
     };
   }, []);
@@ -168,8 +187,27 @@ export default function App({ boot }: { boot: Boot }) {
     bottom.current?.scrollIntoView({ behavior: "instant" });
   }, [messages.length]);
   useEffect(() => {
-    if (safety) safetyClose.current?.focus();
+    if (safety) {
+      safetyClose.current?.focus({ preventScroll: true });
+      return;
+    }
+    if (!safetyOpener.current) return;
+    const opener = safetyOpener.current.getClientRects().length
+      ? safetyOpener.current
+      : [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            "[data-safety-opener]",
+          ),
+        ].find((button) => button.getClientRects().length > 0);
+    opener?.focus({ preventScroll: true });
+    safetyOpener.current = null;
   }, [safety]);
+  useEffect(() => {
+    if (manualInvite) {
+      inviteInput.current?.focus({ preventScroll: true });
+      inviteInput.current?.select();
+    }
+  }, [manualInvite]);
 
   async function connect(
     roomId: string,
@@ -198,8 +236,7 @@ export default function App({ boot }: { boot: Boot }) {
           busy.current = false;
         },
         ready: () => {
-          setInvite("");
-          setCopied(false);
+          clearInvite();
           setStage("chat");
           busy.current = false;
         },
@@ -219,6 +256,7 @@ export default function App({ boot }: { boot: Boot }) {
     setError("");
     setMessages([]);
     setDraft("");
+    clearInvite();
     const operation = ++generation.current;
     transport.current = null;
     let secret: Uint8Array | null = null;
@@ -250,7 +288,7 @@ export default function App({ boot }: { boot: Boot }) {
       secret?.fill(0);
       if (activeSecret.current === secret) activeSecret.current = null;
       if (generation.current !== operation) return;
-      setInvite("");
+      clearInvite();
       setExpiresAt(null);
       setStage("home");
       setError("暂时无法创建房间，请稍后重试。");
@@ -285,6 +323,7 @@ export default function App({ boot }: { boot: Boot }) {
     event?.preventDefault();
     if (
       busy.current ||
+      composing.current ||
       !draft ||
       byteCount > MAX_PLAINTEXT_BYTES ||
       stage !== "chat"
@@ -307,23 +346,51 @@ export default function App({ boot }: { boot: Boot }) {
   }
 
   async function copyInvite() {
+    if (!invite) return;
+    const version = inviteVersion.current;
     try {
       await navigator.clipboard.writeText(invite);
-      setCopied(true);
+      if (inviteVersion.current === version) {
+        setCopied(true);
+        setCopyFailed(false);
+        setManualInvite(false);
+        setError("");
+      }
     } catch {
-      setError("无法访问剪贴板，可选中邀请链接复制。");
+      if (inviteVersion.current === version) {
+        setCopied(false);
+        setCopyFailed(true);
+        setError("无法访问剪贴板，可手动复制邀请链接。");
+      }
     }
   }
 
+  function openSafety(event: MouseEvent<HTMLButtonElement>) {
+    safetyOpener.current = event.currentTarget;
+    setSafety(true);
+  }
   function closeSafety() {
     setSafety(false);
-    infoButton.current?.focus();
   }
   function safetyKeys(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") closeSafety();
-    if (event.key === "Tab") {
+    if (event.key === "Escape") {
       event.preventDefault();
-      safetyClose.current?.focus();
+      event.stopPropagation();
+      closeSafety();
+    }
+    if (event.key === "Tab") {
+      const controls = event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        "button:not(:disabled)",
+      );
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
   }
 
@@ -341,7 +408,7 @@ export default function App({ boot }: { boot: Boot }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="sidebar" inert={safety}>
         <a className="brand" href="/" aria-label="Ghost Chat 首页">
           <MessagesSquare size={25} />
           <span>Ghost Chat</span>
@@ -359,16 +426,16 @@ export default function App({ boot }: { boot: Boot }) {
           <p>实验性端到端加密</p>
           <span>无需账号 · 不提供聊天历史</span>
           <button
-            ref={infoButton}
+            data-safety-opener
             className="text-button"
-            onClick={() => setSafety(true)}
+            onClick={openSafety}
           >
             <Info size={16} />
             安全与隐私
           </button>
         </div>
       </aside>
-      <main className="workspace">
+      <main className="workspace" inert={safety}>
         <header className="topbar">
           <div>
             <div className="mobile-brand">
@@ -394,7 +461,8 @@ export default function App({ boot }: { boot: Boot }) {
               className="icon-button mobile-info"
               title="安全与隐私"
               aria-label="安全与隐私"
-              onClick={() => setSafety(true)}
+              data-safety-opener
+              onClick={openSafety}
             >
               <Info size={19} />
             </button>
@@ -480,12 +548,26 @@ export default function App({ boot }: { boot: Boot }) {
                       <div className="invite-row">
                         <input
                           id="invite"
-                          aria-label="邀请链接"
-                          type="password"
+                          ref={inviteInput}
+                          aria-label={
+                            manualInvite ? "手动复制邀请链接" : "邀请链接"
+                          }
+                          type={manualInvite ? "text" : "password"}
                           readOnly
                           value={invite}
                           spellCheck={false}
                           autoComplete="off"
+                          inputMode="none"
+                          onFocus={
+                            manualInvite
+                              ? (event) => event.currentTarget.select()
+                              : undefined
+                          }
+                          onClick={
+                            manualInvite
+                              ? (event) => event.currentTarget.select()
+                              : undefined
+                          }
                         />
                         <button
                           className="icon-button"
@@ -495,10 +577,37 @@ export default function App({ boot }: { boot: Boot }) {
                         >
                           {copied ? <Check size={19} /> : <Copy size={19} />}
                         </button>
+                        <button
+                          className="icon-button"
+                          title={
+                            qrVisible ? "隐藏邀请二维码" : "显示邀请二维码"
+                          }
+                          aria-label={
+                            qrVisible ? "隐藏邀请二维码" : "显示邀请二维码"
+                          }
+                          aria-expanded={qrVisible}
+                          onClick={() => setQRVisible((visible) => !visible)}
+                        >
+                          <QrCode size={19} />
+                        </button>
                       </div>
                       <span className="copy-state" aria-live="polite">
                         {copied ? "已复制" : "加入后邀请立即失效"}
                       </span>
+                      {copyFailed && !manualInvite && (
+                        <button
+                          className="text-button"
+                          aria-label="显示邀请链接以手动复制"
+                          onClick={() => {
+                            setManualInvite(true);
+                            setError("");
+                          }}
+                        >
+                          <Eye size={16} />
+                          手动复制
+                        </button>
+                      )}
+                      {qrVisible && <InvitationQR value={invite} />}
                     </div>
                   ) : (
                     <p className="risk-note">等待房间创建者上线</p>
@@ -581,11 +690,19 @@ export default function App({ boot }: { boot: Boot }) {
                   autoComplete="off"
                   spellCheck={false}
                   rows={2}
+                  onCompositionStart={() => {
+                    composing.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    composing.current = false;
+                  }}
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&
                       !event.shiftKey &&
-                      !event.nativeEvent.isComposing
+                      !composing.current &&
+                      !event.nativeEvent.isComposing &&
+                      event.nativeEvent.keyCode !== 229
                     ) {
                       event.preventDefault();
                       void send();
