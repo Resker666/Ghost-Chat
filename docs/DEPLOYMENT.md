@@ -152,6 +152,8 @@ node scripts/container-e2e.mjs
 
 runner 默认只跑 Chromium。`CONTAINER_HTTPS_PORT` 默认 18443，仅绑定 loopback；占用时报错，不复用已有服务。测试创建随机专用 Compose 项目、生产应用镜像和非 root Nginx，自动设置外部 origin、短 TTL 和容器重启限制，完成后只清理其自有项目、镜像与临时目录。
 
+隔离实验的网络契约调整为：应用只连接 `internal` relay 且不发布端口；Nginx 同时连接 relay 与独立普通 ingress bridge，仍只向 host loopback 发布。验收需核对实际 `NetworkSettings.Ports`、连接的网络及其 `Internal` 属性，不把仅有 `HostConfig.PortBindings` 请求当作端口已生效。该调整针对推送后 CI 的连接拒绝排查，正在实现并等待新 CI；不表示容器 TLS 已通过，也不改变线上原生服务。
+
 完整 runner 验收要求基础双人会话与隔离容器重启用例均实际执行并通过。只 `--list`、全部 skipped，或用过滤参数排除了任一关键用例，都不构成完成验收；不能仅凭 Playwright 进程退出 0 记成功。runner 使用受控的安全结果 reporter，仅输出无秘密计数和关键测试是否通过，不允许用 `--reporter` 覆盖。普通生产 origin 的两个选择用例仍只是前节定义的受限检查，不能替代完整容器验收。
 
 2026-10-15 已实际完成 CLI 拒绝、合成事件/schema/输出边界自测和真实 Playwright 固定失败 reporter 集成。它们验证验收门槛与安全诊断，不代表本轮 TLS 容器栈已运行；该隔离容器模式的 Linux/测试 CA 目标仍待实际执行并绑定新提交记录。

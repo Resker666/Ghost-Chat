@@ -64,8 +64,10 @@ services:
     ulimits:
       core: { soft: 0, hard: 0 }
     logging: { driver: none }
-    networks: [relay]
+    networks: [relay, ingress]
 
 networks:
   relay:
     internal: true
+  ingress:
+    driver: bridge

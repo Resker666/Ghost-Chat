@@ -313,6 +313,16 @@ npm run test:matrix -- --grep 'two isolated contexts exchange|production headers
 
 本次仅同步该项用户反馈，没有重跑测试或修改实现。容器 TLS、自动续期出站连通性、私密报告管理员操作和新工作区远程 CI 的既有状态保持不变，文档再次冻结。
 
+## 2026-10-15 推送后 CI
+
+用户授权后，主代理已推送 `8ca689c`。其 [Verify run 38703088198](https://github.com/Resker666/Ghost-Chat/actions/runs/38703088198) 已完成：Go、web 与五项目 E2E 共 7 个作业成功；`container-build` 的镜像构建、Compose 配置、只读非 root health/static smoke 前置步骤成功，随后在 TLS readiness 失败，仅报告 `Verified HTTPS application readiness failed`。尚无足够诊断确定原因，不能标记完整容器 TLS 验收通过；此隔离 CI 结果也不代替线上原生服务状态。
+
+主代理随后推送单文件安全诊断提交 `cbcee956d7d6a77e5123390c0cbf4b2da2082169`。其 [Verify run 38705343238](https://github.com/Resker666/Ghost-Chat/actions/runs/38705343238) 第二轮已确认失败：[容器作业诊断](https://github.com/Resker666/Ghost-Chat/actions/runs/38705343238/job/116323258991) 显示 health `request_error` / `ECONNREFUSED`，HTTP status 为 null、TLS 为 false、protocol 为 null；应用与 Nginx 容器均 running、exit 0。连接尚未进入 TLS 握手，不将它写成已证实的证书或握手错误。
+
+[Moby 社区一手复现讨论](https://github.com/moby/moby/discussions/53256) 报告了仅连接 internal bridge 的容器可能接受发布配置却没有实际 host-port 映射的现象；这是本次排查参考，不替代实际 CI 的根因与修复验证。当前正调整隔离实验拓扑：应用只连接 internal relay、无发布端口；代理连接 relay 与独立普通 ingress bridge，仅向 host loopback 发布。并将核对实际 `NetworkSettings.Ports` 及网络拓扑/内部属性，不能只看 `HostConfig.PortBindings` 中的请求配置。
+
+该修复正在实现，尚待新的 CI 实际结果，**未标为解决或容器 TLS 通过**。其余本机、正式域名、手机反馈与续期限制保留原有历史记录。
+
 ## 持续限制
 
 尚未经过独立审计；无前向保密、无真实身份认证、无物理擦除和防截图保证；公网服务器可观察 IP 与元数据，恶意 Web 发布者可替换客户端代码。
