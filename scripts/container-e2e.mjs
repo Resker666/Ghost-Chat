@@ -34,6 +34,148 @@ let activeChild;
 let stopActiveChild;
 let interrupted = false;
 
+const healthReasons = new Set([
+  "not_attempted",
+  "ok",
+  "request_error",
+  "request_timeout",
+  "response_error",
+  "response_aborted",
+  "http_status",
+  "tls_unauthorized",
+  "tls_protocol",
+  "health_body",
+  "health_body_too_large",
+]);
+const healthCodes = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EPIPE",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_SIGNATURE_FAILURE",
+  "ERR_SSL_WRONG_VERSION_NUMBER",
+  "ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE",
+  "ERR_TLS_INVALID_PROTOCOL_VERSION",
+  "ERR_TLS_CERT_SIGNATURE_ALGORITHM_UNSUPPORTED",
+  "ERR_OSSL_PEM_NO_START_LINE",
+]);
+const tlsProtocols = new Set([
+  "SSLv3",
+  "TLSv1",
+  "TLSv1.1",
+  "TLSv1.2",
+  "TLSv1.3",
+]);
+const containerStates = new Set([
+  "created",
+  "running",
+  "paused",
+  "restarting",
+  "removing",
+  "exited",
+  "dead",
+]);
+
+function healthSummary(details = {}) {
+  return {
+    reason: healthReasons.has(details.reason) ? details.reason : "unknown",
+    code:
+      details.code == null
+        ? null
+        : healthCodes.has(details.code)
+          ? details.code
+          : "OTHER",
+    status:
+      Number.isInteger(details.status) &&
+      details.status >= 100 &&
+      details.status <= 599
+        ? details.status
+        : null,
+    tlsAuthorized:
+      typeof details.tlsAuthorized === "boolean" ? details.tlsAuthorized : null,
+    protocol:
+      details.protocol == null
+        ? null
+        : tlsProtocols.has(details.protocol)
+          ? details.protocol
+          : "OTHER",
+  };
+}
+
+function healthFailure(reason, error, details = {}) {
+  const failure = new Error("Verified HTTPS health request failed");
+  failure.health = healthSummary({ ...details, reason, code: error?.code });
+  failure.code = failure.health.code;
+  return failure;
+}
+
+function containerSummary(record, project) {
+  if (
+    record.project !== project ||
+    !["ghost-chat", "nginx"].includes(record.service)
+  )
+    return null;
+  return {
+    service: record.service,
+    state: containerStates.has(record.state) ? record.state : "unknown",
+    exitCode:
+      Number.isInteger(record.exitCode) &&
+      record.exitCode >= 0 &&
+      record.exitCode <= 255
+        ? record.exitCode
+        : null,
+  };
+}
+
+async function reportFailureDiagnostics(compose, env, project, lastHealth) {
+  let containers;
+  try {
+    const ids = (
+      await compose(["ps", "--all", "--quiet"], { env, cleanup: true })
+    )
+      .split(/\s+/)
+      .filter(Boolean);
+    if (ids.length > 16 || ids.some((id) => !/^[a-f0-9]{12,64}$/.test(id)))
+      throw new Error("Invalid owned container identifiers");
+    containers = [];
+    if (ids.length) {
+      const format =
+        '{"project":{{json (index .Config.Labels "com.docker.compose.project")}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"state":{{json .State.Status}},"exitCode":{{json .State.ExitCode}}}';
+      const output = await run(
+        "docker",
+        ["inspect", "--type", "container", "--format", format, ...ids],
+        { env, cleanup: true, label: "Owned container diagnostic inspection" },
+      );
+      containers = output
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => containerSummary(JSON.parse(line), project))
+        .filter(Boolean);
+    }
+  } catch {
+    containers = ["ghost-chat", "nginx"].map((service) => ({
+      service,
+      state: "inspection_unavailable",
+      exitCode: null,
+    }));
+  }
+  console.error(
+    "Container failure diagnostics: " +
+      JSON.stringify({ health: healthSummary(lastHealth), containers }),
+  );
+}
+
 function run(command, parameters, options = {}) {
   return new Promise((resolve, reject) => {
     if (interrupted && !options.cleanup) {
@@ -126,37 +268,62 @@ async function requireFreePort(port) {
 
 function requestHealth(origin, ca) {
   return new Promise((resolve, reject) => {
-    const request = https.get(
-      `${origin}/healthz`,
-      { ca, rejectUnauthorized: true, timeout: 2000 },
-      (response) => {
-        const authorized = response.socket.authorized;
-        const protocol = response.socket.getProtocol();
-        let body = "";
-        response.on("data", (chunk) => {
-          body += chunk.toString();
-          if (body.length > 1024) response.destroy();
-        });
-        response.on("end", () => {
-          if (
-            response.statusCode !== 200 ||
-            !authorized ||
-            !["TLSv1.2", "TLSv1.3"].includes(protocol) ||
-            body.trim() !== '{"status":"ok"}'
-          ) {
-            reject(new Error("Verified TLS health response was invalid"));
-          } else resolve(protocol);
-        });
-        response.on("error", reject);
-        response.once("aborted", () =>
-          reject(new Error("TLS health response aborted")),
-        );
-      },
-    );
-    request.once("error", reject);
-    request.once("timeout", () =>
-      request.destroy(new Error("TLS readiness timeout")),
-    );
+    const details = { status: null, tlsAuthorized: null, protocol: null };
+    let request;
+    const fail = (reason, error) => {
+      const socket = request?.socket;
+      if (
+        details.tlsAuthorized === null &&
+        typeof socket?.authorized === "boolean"
+      )
+        details.tlsAuthorized = socket.authorized;
+      if (
+        details.protocol === null &&
+        typeof socket?.getProtocol === "function"
+      )
+        details.protocol = socket.getProtocol();
+      reject(healthFailure(reason, error, details));
+    };
+    try {
+      request = https.get(
+        `${origin}/healthz`,
+        { ca, rejectUnauthorized: true, timeout: 2000 },
+        (response) => {
+          details.status = response.statusCode;
+          details.tlsAuthorized = response.socket.authorized;
+          details.protocol = response.socket.getProtocol();
+          let body = "";
+          let bytes = 0;
+          response.on("data", (chunk) => {
+            bytes += chunk.length;
+            if (bytes > 1024) {
+              fail("health_body_too_large");
+              response.destroy();
+              return;
+            }
+            body += chunk.toString();
+          });
+          response.on("end", () => {
+            if (details.status !== 200) fail("http_status");
+            else if (!details.tlsAuthorized) fail("tls_unauthorized");
+            else if (!["TLSv1.2", "TLSv1.3"].includes(details.protocol))
+              fail("tls_protocol");
+            else if (body.trim() !== '{"status":"ok"}') fail("health_body");
+            else resolve(details.protocol);
+          });
+          response.on("error", (error) => fail("response_error", error));
+          response.once("aborted", () => fail("response_aborted"));
+        },
+      );
+    } catch (error) {
+      fail("request_error", error);
+      return;
+    }
+    request.once("error", (error) => fail("request_error", error));
+    request.once("timeout", () => {
+      fail("request_timeout", { code: "ETIMEDOUT" });
+      request.destroy();
+    });
   });
 }
 
@@ -502,6 +669,7 @@ async function main() {
   let env;
   let stackAttempted = false;
   let cleanupFailed = false;
+  let lastHealth = healthSummary({ reason: "not_attempted" });
   const compose = (parameters, options = {}) =>
     run(
       "docker",
@@ -555,8 +723,16 @@ async function main() {
     for (let attempt = 0; attempt < 120 && !interrupted; attempt++) {
       try {
         protocol = await requestHealth(origin, ca);
+        lastHealth = healthSummary({
+          reason: "ok",
+          status: 200,
+          tlsAuthorized: true,
+          protocol,
+        });
         break;
-      } catch {}
+      } catch (error) {
+        lastHealth = healthSummary(error.health);
+      }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     if (!protocol)
@@ -628,6 +804,10 @@ async function main() {
     console.log(
       `Container HTTPS/WSS acceptance passed: ${summary.passed} selected tests passed, ${summary.skipped} skipped; encrypted conversation and isolated container restart both passed. Public-domain TLS remains a separate deployment check.`,
     );
+  } catch (error) {
+    if (stackAttempted && env)
+      await reportFailureDiagnostics(compose, env, project, lastHealth);
+    throw error;
   } finally {
     if (stackAttempted) {
       try {
