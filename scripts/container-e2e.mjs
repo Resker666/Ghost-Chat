@@ -493,11 +493,11 @@ async function createCertificates(runDir) {
   return { certDir, ca, home };
 }
 
-async function inspectStack(compose, env, port) {
+async function inspectStack(compose, env, project, port) {
   const ids = (await compose(["ps", "--quiet"], { env }))
     .split(/\s+/)
     .filter(Boolean);
-  if (ids.length !== 2)
+  if (ids.length !== 2 || ids.some((id) => !/^[a-f0-9]{12,64}$/.test(id)))
     throw new Error("Expected exactly two isolated test containers");
   const containers = JSON.parse(
     await run("docker", ["inspect", ...ids], {
@@ -505,9 +505,22 @@ async function inspectStack(compose, env, port) {
       env,
     }),
   );
+  const relay = `${project}_relay`;
+  const ingress = `${project}_ingress`;
+  const services = new Map();
   for (const container of containers) {
     const service = container.Config.Labels["com.docker.compose.service"];
+    if (
+      container.Config.Labels["com.docker.compose.project"] !== project ||
+      services.has(service)
+    )
+      throw new Error("Container ownership did not match the isolated project");
+    services.set(service, container.Id);
     const host = container.HostConfig;
+    const actualPorts = Object.entries(
+      container.NetworkSettings.Ports || {},
+    ).filter(([, bindings]) => bindings?.length);
+    const networks = Object.keys(container.NetworkSettings.Networks).sort();
     if (
       !host.ReadonlyRootfs ||
       host.LogConfig.Type !== "none" ||
@@ -523,27 +536,73 @@ async function inspectStack(compose, env, port) {
       if (
         container.Config.User !== "65532:65532" ||
         container.Mounts.length !== 0 ||
-        Object.keys(host.PortBindings || {}).length !== 0
+        Object.keys(host.PortBindings || {}).length !== 0 ||
+        actualPorts.length !== 0 ||
+        networks.length !== 1 ||
+        networks[0] !== relay
       ) {
         throw new Error(
-          "Application container must be non-root, unmounted, and unpublished",
+          "Application container must be non-root, unmounted, unpublished, and relay-only",
         );
       }
     } else if (service === "nginx") {
       const bindings = host.PortBindings["8443/tcp"];
+      const published = actualPorts[0]?.[1];
       if (
         container.Config.User !== "101:101" ||
         Object.keys(host.PortBindings).length !== 1 ||
         bindings?.length !== 1 ||
         bindings[0].HostIp !== "127.0.0.1" ||
         bindings[0].HostPort !== String(port) ||
+        actualPorts.length !== 1 ||
+        actualPorts[0][0] !== "8443/tcp" ||
+        published?.length !== 1 ||
+        published[0].HostIp !== "127.0.0.1" ||
+        published[0].HostPort !== String(port) ||
+        networks.length !== 2 ||
+        networks[0] !== ingress ||
+        networks[1] !== relay ||
         container.Mounts.some((mount) => mount.Type === "bind" && mount.RW)
       ) {
         throw new Error(
-          "Proxy exposure or read-only mounts did not match the test contract",
+          "Proxy runtime port publication, networks, or read-only mounts did not match the test contract",
         );
       }
     } else throw new Error("Unexpected service in isolated Compose project");
+  }
+  if (containers.length !== 2 || services.size !== 2)
+    throw new Error("Expected both services in the isolated Compose project");
+  const networks = JSON.parse(
+    await run("docker", ["network", "inspect", relay, ingress], {
+      label: "Owned network isolation inspection",
+      env,
+    }),
+  );
+  if (networks.length !== 2)
+    throw new Error("Expected both isolated Compose networks");
+  for (const network of networks) {
+    const isRelay = network.Name === relay;
+    const expectedService = isRelay ? "relay" : "ingress";
+    const expectedIds = isRelay
+      ? [...services.values()].sort()
+      : [services.get("nginx")];
+    const connectedIds = Object.keys(network.Containers || {}).sort();
+    if (
+      ![relay, ingress].includes(network.Name) ||
+      network.Labels?.["com.docker.compose.project"] !== project ||
+      network.Labels?.["com.docker.compose.network"] !== expectedService ||
+      network.Driver !== "bridge" ||
+      network.Internal !== isRelay ||
+      connectedIds.length !== expectedIds.length ||
+      connectedIds.some((id, index) => id !== expectedIds[index]) ||
+      containers.some((container) => {
+        const attached = container.NetworkSettings.Networks[network.Name];
+        return attached && attached.NetworkID !== network.Id;
+      })
+    )
+      throw new Error(
+        "Owned runtime network isolation did not match the test contract",
+      );
   }
 }
 
@@ -718,6 +777,7 @@ async function main() {
       ],
       { env },
     );
+    await inspectStack(compose, env, project, port);
     const ca = await readFile(certificates.ca);
     let protocol;
     for (let attempt = 0; attempt < 120 && !interrupted; attempt++) {
@@ -739,7 +799,6 @@ async function main() {
       throw new Error("Verified HTTPS application readiness failed");
     await requireTLSRejection(origin, ca);
     await requireTLSRejection(origin, ca, true);
-    await inspectStack(compose, env, port);
     if (interrupted) throw new Error("Container verification interrupted");
     console.log(
       `Verified local test-CA HTTPS (${protocol}); untrusted issuer and wrong hostname rejected.`,
