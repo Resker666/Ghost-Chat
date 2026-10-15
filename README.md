@@ -2,9 +2,9 @@
 
 无需账号、仅支持双人在线文字聊天的实验性端到端加密 Web 原型。浏览器本地加密，Go 服务仅在内存中管理房间和中继密文，不提供历史消息。
 
-P0/P1 可运行聊天与 P1.5 核心安全加固已完成。提交 `v1-baseline` 的 [首次 Linux CI](https://github.com/Resker666/Ghost-Chat/actions/runs/38558565586) 四作业成功，包含 Docker 构建、Compose 配置与容器基础检查。
+P0/P1 MVP 与核心加固已完成。`container-ingress` 的 [CI 8 作业全部通过](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313)，覆盖 Go、web、五项目 E2E，以及 Linux 生产镜像经 Nginx 和临时测试 CA 的 HTTPS/WSS 会话与重启。
 
-2026-10-15 工作区的本机结果按范围单列：二维码前完整矩阵 115 passed / 5 个容器专用跳过、QR 后定向回归 25 passed、隐私修复后定向回归 25 passed，单元测试 86 passed。各组有重叠，不累加为新完整矩阵或远程 CI 通过。诊断隐私探针与容器结果判定自测也已完成，见 [开发记录](docs/PROGRESS.md)。项目尚未经过独立安全审计。
+本机回归、诊断隐私探针及历次 CI 的证据见 [开发记录](docs/PROGRESS.md)。项目尚未经过独立安全审计。
 
 ## 安全边界
 
@@ -115,7 +115,7 @@ npm run test:matrix
 
 Windows 完整检查中的 race 需要可用的兼容 C 编译器、`CGO_ENABLED=1` 和 `CC`。环境暂缺时可明确选择 `./scripts/verify.ps1 -SkipRace`，记录跳过，不能称完整通过；`-SkipE2E` 同理。Linux 使用 `bash scripts/verify.sh`，必要时先在 `e2e/` 运行 `npx playwright install --with-deps chromium` 安装浏览器系统依赖。
 
-CI 在 Linux 执行 Go race/vet/模块校验/漏洞扫描、前端检查/格式检查/依赖审计、真实 Chromium E2E 和容器 smoke。已确认的成功运行对应 `v1-baseline`；后续修改需要匹配其提交重新查看结果。验证范围见 [测试计划](docs/TEST_PLAN.md)，浏览器和真机状态见 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。
+CI 在 Linux 执行 Go race/vet/模块校验/漏洞扫描、前端检查/格式检查/依赖审计、五项目 E2E、容器基础检查及生产镜像 HTTPS/WSS 会话/重启验收。当前验证基准为 `container-ingress`。范围见 [测试计划](docs/TEST_PLAN.md)，浏览器和真机状态见 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。
 
 ## 目录
 

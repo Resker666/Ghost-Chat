@@ -1,6 +1,6 @@
 # 单实例部署
 
-截至 2026-10-15，提交 `v1-baseline` 的 [Linux CI](https://github.com/Resker666/Ghost-Chat/actions/runs/38558565586) 已实际完成 Docker 构建、Compose 配置校验，以及只读非 root 容器的 `/healthz` 和首页静态响应检查。2026-10-14 本机未安装 Docker 的记录仍保留为历史事实。
+`container-ingress` 的 [CI 8 作业全部通过](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313)，包括镜像构建、Compose/权限检查及 Linux 生产镜像 + Nginx 临时测试 CA 的 HTTPS/WSS 会话与隔离容器重启。历次基础检查和失败排查保留在 [PROGRESS.md](PROGRESS.md)。
 
 ## 本地同源运行
 
@@ -112,19 +112,17 @@ cd ..
 node scripts/container-e2e.mjs
 ```
 
-runner 默认只跑 Chromium。`CONTAINER_HTTPS_PORT` 默认 18443，仅绑定 loopback；占用时报错，不复用已有服务。测试创建随机专用 Compose 项目、生产应用镜像和非 root Nginx，自动设置外部 origin、短 TTL 和容器重启限制，完成后只清理其自有项目、镜像与临时目录。
+runner 默认只跑 Chromium。`CONTAINER_HTTPS_PORT` 默认 18443，仅绑定 loopback；占用时报错，不复用已有服务。测试创建随机专用 Compose 项目、生产应用镜像和非 root Nginx，自动设置外部 origin、短 TTL 和容器重启限制，完成后清理自有 Compose 项目与临时目录，失败会令 job 失败；自建测试镜像删除仅尽力执行。
 
-隔离实验的网络契约调整为：应用只连接 `internal` relay 且不发布端口；Nginx 同时连接 relay 与独立普通 ingress bridge，仍只向 host loopback 发布。验收需核对实际 `NetworkSettings.Ports`、连接的网络及其 `Internal` 属性，不把仅有 `HostConfig.PortBindings` 请求当作端口已生效。该调整针对推送后 CI 的连接拒绝排查，正在实现并等待新 CI；不表示容器 TLS 已通过，也不改变线上原生服务。
+隔离实验的网络契约为：应用只连接 `internal` relay 且不发布端口；Nginx 同时连接 relay 与独立普通 ingress bridge，仍只向 host loopback 发布。验收核对实际 `NetworkSettings.Ports`、连接的网络及其 `Internal` 属性，不把仅有 `HostConfig.PortBindings` 请求当作端口已生效。此前两轮 CI 的连接失败保留在开发记录；该调整后的 `container-ingress` 已通过实际完整容器验收，不改变线上原生服务。
 
 完整 runner 验收要求基础双人会话与隔离容器重启用例均实际执行并通过。只 `--list`、全部 skipped，或用过滤参数排除了任一关键用例，都不构成完成验收；不能仅凭 Playwright 进程退出 0 记成功。runner 使用受控的安全结果 reporter，仅输出无秘密计数和关键测试是否通过，不允许用 `--reporter` 覆盖。普通生产 origin 的两个选择用例仍只是前节定义的受限检查，不能替代完整容器验收。
 
-2026-10-15 已实际完成 CLI 拒绝、合成事件/schema/输出边界自测和真实 Playwright 固定失败 reporter 集成。它们验证验收门槛与安全诊断，不代表本轮 TLS 容器栈已运行；该隔离容器模式的 Linux/测试 CA 目标仍待实际执行并绑定新提交记录。
+CLI 拒绝、schema/输出边界自测和固定失败 reporter 探针验证了入口门槛；`container-ingress` 的 [实际容器作业](https://github.com/Resker666/Ghost-Chat/actions/runs/38706441313/job/116326913412) 进一步通过完整 HTTPS/WSS 会话与隔离重启。
 
 证书来自 `.tools/container-e2e/` 中的短期测试 CA，浏览器使用临时 HOME/NSS trust database，Node 使用同一测试 CA；链与 hostname 验证保持开启，`ignoreHTTPSErrors:false`，不修改系统全局信任。该入口还检查不可信签发者与错误 hostname 被拒绝。
 
 关闭 trace、视频和截图不能单独证明失败诊断无会话材料；异常上下文、locator 断言和所有 reporter 输出都需用故意失败用例检查。测试不得归档完整邀请、二维码、解码文本、明文或原始网络内容；安全统计与工具基础设施诊断分开处理，不把原始错误正文拼入统计报告。
-
-受控测试 CA 下的 TLS/完整会话范围仍须实际运行并登记结果；入口代码存在不表示已通过。即使该入口通过，也不自动证明正式域名证书、真实手机或跨网络验收。runner 会转交 Playwright 参数，但当前信任准备针对 Chromium；其他引擎需要各自信任配置与实测，不得通过忽略 TLS 错误来冒称支持。
 
 ## 日志、权限与重启
 
@@ -134,7 +132,7 @@ runner 默认只跑 Chromium。`CONTAINER_HTTPS_PORT` 默认 18443，仅绑定 l
 
 ## 各模式后续验收
 
-基础 Docker/Compose/health/static 检查已在历史 CI 通过。下面继续面向容器完整流程，不将当前原生结果记为容器通过，也不要求当前原生目标安装 Docker。代码、镜像或配置改变时验证相应项，记录产物、测试模式、日期和结果，不归档真实会话材料：
+Docker/Compose/health/static 基础检查与生产镜像测试 CA 完整会话/重启已在 `container-ingress` 的 Linux CI 通过。以下作为容器模式变更后的回归清单，既不以原生结果代替容器证据，也不要求当前原生目标安装 Docker。记录产物、测试模式、日期和结果，不归档真实会话材料：
 
 1. `docker compose ... config`、构建、启动及宿主 healthcheck。
 2. 使用正式 HTTPS Origin 双浏览器互聊；检查 WSS、证书、安全头和无第三方请求。
